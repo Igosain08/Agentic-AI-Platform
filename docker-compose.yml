@@ -1,0 +1,53 @@
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: agentic-ai-platform
+    ports:
+      - "8000:8000"
+    environment:
+      - ENVIRONMENT=development
+      - LOG_LEVEL=INFO
+      - NEBIUS_API_KEY=${NEBIUS_API_KEY}
+      - CB_CONNECTION_STRING=${CB_CONNECTION_STRING}
+      - CB_USERNAME=${CB_USERNAME}
+      - CB_PASSWORD=${CB_PASSWORD}
+      - CB_BUCKET_NAME=${CB_BUCKET_NAME:-travel-sample}
+      - MCP_SERVER_PATH=${MCP_SERVER_PATH}
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - CACHE_ENABLED=true
+      - RATE_LIMIT_ENABLED=true
+    volumes:
+      - ./src:/app/src
+    depends_on:
+      - redis
+    restart: unless-stopped
+    networks:
+      - agentic-ai-network
+
+  redis:
+    image: redis:7-alpine
+    container_name: agentic-ai-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    command: redis-server --appendonly yes
+    restart: unless-stopped
+    networks:
+      - agentic-ai-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+networks:
+  agentic-ai-network:
+    driver: bridge
+
+volumes:
+  redis-data:
+

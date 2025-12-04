@@ -1,0 +1,4 @@
+# Streamlit demo dependencies
+streamlit>=1.28.0
+httpx>=0.25.0
+

@@ -1,0 +1,198 @@
+"""Factory for creating and managing AI agents."""
+
+from typing import Any
+
+from langchain_mcp_adapters.tools import load_mcp_tools
+from langgraph.checkpoint.memory import InMemorySaver
+from langgraph.prebuilt import create_react_agent
+
+from agentic_ai.config.settings import get_settings
+from agentic_ai.core.mcp_client import MCPClient
+from agentic_ai.monitoring.logging import get_logger
+
+logger = get_logger(__name__)
+
+
+class AgentFactory:
+    """Factory for creating ReAct agents with MCP tools.
+    
+    Maintains a persistent MCP session that stays alive for tool execution.
+    """
+
+    SYSTEM_PROMPT = """Couchbase organizes data with the following hierarchy (from top to bottom):
+
+1. Cluster
+   The overall container of all Couchbase data and services.
+
+2. Bucket
+   A bucket is similar to a database in traditional systems.
+   Each bucket contains multiple scopes.
+   Example: "users", "analytics", "products"
+
+3. Scope
+   A scope is a namespace within a bucket that groups collections.
+   Scopes help isolate data for different microservices or tenants.
+   Default scope name: _default
+
+4. Collection
+   The equivalent of a table in relational databases.
+   Collections store JSON documents.
+   Default collection name: _default
+
+5. Document
+   The atomic data unit (usually JSON) stored in a collection.
+   Each document has a unique key within its collection.
+
+Use the tools to read the database and answer questions based on this database.
+The data is inside `inventory` scope of the `travel-sample` bucket, so use only that scope.
+Available collections in the inventory scope: `hotel`, `route`, `landmark`, `airport`, `airline`
+IMPORTANT: Use the exact collection names as listed above (e.g., `hotel` not `hotels`).
+
+Any query you generate needs to have only the collection name in the FROM clause.
+Every field, collection, scope or bucket name inside the query should be inside backticks.
+If a tool returns an error, use the error message to understand what went wrong and try a different approach.
+
+When answering questions:
+- Be precise and data-driven
+- Format responses clearly with proper structure
+- Include relevant metrics and numbers when available
+- If data is not available, clearly state that
+- For recommendations, provide reasoning based on the data
+"""
+
+    def __init__(self, mcp_client: MCPClient | None = None, model: Any = None):
+        """Initialize agent factory.
+
+        Args:
+            mcp_client: Optional MCP client. If None, creates a new one.
+            model: Optional LLM model. If None, creates from settings.
+        """
+        self.settings = get_settings()
+        self.mcp_client = mcp_client or MCPClient()
+        self.model = model or self._create_model()
+        self._checkpoint = InMemorySaver()
+        self._mcp_session_context = None
+        self._mcp_session = None
+        self._tools = None
+
+    def _create_model(self):
+        """Create LLM model from settings."""
+        import os
+        
+        try:
+            from langchain_litellm import ChatLiteLLM
+
+            # Set API key based on provider
+            provider = self.settings.llm_provider.lower()
+            api_key = None
+            
+            if provider == "openai" and self.settings.openai_api_key:
+                os.environ["OPENAI_API_KEY"] = self.settings.openai_api_key
+                api_key = self.settings.openai_api_key
+                logger.info("Using OpenAI provider")
+            elif provider == "nebius" and self.settings.nebius_api_key:
+                os.environ["NEBIUS_API_KEY"] = self.settings.nebius_api_key
+                api_key = self.settings.nebius_api_key
+                logger.info("Using Nebius provider")
+            elif provider == "anthropic" and hasattr(self.settings, 'anthropic_api_key'):
+                os.environ["ANTHROPIC_API_KEY"] = getattr(self.settings, 'anthropic_api_key', '')
+                api_key = getattr(self.settings, 'anthropic_api_key', '')
+                logger.info("Using Anthropic provider")
+            else:
+                # Try to auto-detect from environment
+                if os.getenv("OPENAI_API_KEY"):
+                    logger.info("Auto-detected OpenAI from environment")
+                elif os.getenv("ANTHROPIC_API_KEY"):
+                    logger.info("Auto-detected Anthropic from environment")
+                else:
+                    logger.warning("No API key found, will try to use environment variables")
+
+            # Use effective model (auto-fixes for provider)
+            model_name = getattr(self.settings, 'effective_model', self.settings.llm_model)
+            
+            return ChatLiteLLM(
+                model=model_name,
+                temperature=self.settings.llm_temperature,
+                max_tokens=self.settings.llm_max_tokens,
+                api_key=api_key if api_key else None,
+            )
+        except ImportError:
+            logger.warning(
+                "langchain_litellm not available, falling back to langchain_community"
+            )
+            from langchain_community.chat_models import ChatLiteLLM
+
+            return ChatLiteLLM(
+                model=self.settings.llm_model,
+                temperature=self.settings.llm_temperature,
+                max_tokens=self.settings.llm_max_tokens,
+            )
+
+    async def _ensure_mcp_session(self):
+        """Ensure MCP session is open and tools are loaded."""
+        if self._mcp_session is None:
+            logger.info("Opening MCP session...")
+            self._mcp_session_context = self.mcp_client.session()
+            self._mcp_session = await self._mcp_session_context.__aenter__()
+            logger.info("MCP session opened")
+            
+            # Load tools once - tools are bound to this session
+            if self._tools is None:
+                logger.info("Loading MCP tools...")
+                try:
+                    self._tools = await load_mcp_tools(self._mcp_session)
+                    logger.info(f"Loaded {len(self._tools)} MCP tools")
+                    # Log tool names for debugging
+                    tool_names = [getattr(t, 'name', 'unknown') for t in self._tools]
+                    logger.debug(f"MCP tool names: {tool_names[:5]}...")
+                except Exception as e:
+                    logger.error(f"Failed to load MCP tools: {e}", exc_info=True)
+                    raise
+    
+    async def create_agent(self) -> Any:
+        """Create a ReAct agent with MCP tools.
+
+        Returns:
+            LangGraph agent instance
+        """
+        logger.info("Creating agent with MCP tools")
+        
+        try:
+            # Ensure MCP session is open (persistent connection)
+            await self._ensure_mcp_session()
+            
+            # Create agent with the tools
+            agent = create_react_agent(
+                self.model,
+                self._tools,
+                prompt=self.SYSTEM_PROMPT,
+                checkpointer=self._checkpoint,
+            )
+            
+            logger.info("Agent created successfully with MCP tools")
+            return agent
+                
+        except Exception as e:
+            logger.error(f"Failed to create agent: {e}", exc_info=True)
+            import traceback
+            traceback.print_exc()
+            raise
+    
+    async def close(self):
+        """Close MCP session."""
+        if self._mcp_session_context and self._mcp_session:
+            logger.info("Closing MCP session")
+            await self._mcp_session_context.__aexit__(None, None, None)
+            self._mcp_session_context = None
+            self._mcp_session = None
+            self._tools = None
+    
+
+    def get_checkpoint(self) -> InMemorySaver:
+        """Get the checkpoint saver for agent memory.
+
+        Returns:
+            InMemorySaver instance
+        """
+        return self._checkpoint
+
