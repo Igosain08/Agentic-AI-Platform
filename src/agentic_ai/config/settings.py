@@ -35,13 +35,13 @@ class Settings(BaseSettings):
     nebius_api_key: Optional[str] = Field(default="", alias="NEBIUS_API_KEY")
 
     # Couchbase
-    cb_connection_string: str = Field(alias="CB_CONNECTION_STRING")
-    cb_username: str = Field(alias="CB_USERNAME")
-    cb_password: str = Field(alias="CB_PASSWORD")
+    cb_connection_string: Optional[str] = Field(default="", alias="CB_CONNECTION_STRING")
+    cb_username: Optional[str] = Field(default="", alias="CB_USERNAME")
+    cb_password: Optional[str] = Field(default="", alias="CB_PASSWORD")
     cb_bucket_name: str = Field(alias="CB_BUCKET_NAME", default="travel-sample")
 
     # MCP Server
-    mcp_server_path: str = Field(alias="MCP_SERVER_PATH")
+    mcp_server_path: Optional[str] = Field(default="/app/mcp-server-couchbase", alias="MCP_SERVER_PATH")
 
     # Redis
     redis_host: str = Field(default="localhost")
