@@ -50,10 +50,6 @@ COPY --chown=appuser:appuser pyproject.toml README.md ./
 COPY --chown=appuser:appuser start.sh ./
 RUN chmod +x start.sh
 
-# Copy start script before switching user
-COPY --chown=appuser:appuser start.sh ./
-RUN chmod +x start.sh
-
 # Switch to non-root user
 USER appuser
 
