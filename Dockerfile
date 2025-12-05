@@ -59,5 +59,5 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
 
 # Run application
 # Use PORT environment variable if set (for Railway, Render, etc.), otherwise default to 8000
-CMD uvicorn agentic_ai.api.main:app --host 0.0.0.0 --port ${PORT:-8000}
+CMD ["sh", "-c", "uvicorn agentic_ai.api.main:app --host 0.0.0.0 --port ${PORT:-8000}"]
 
