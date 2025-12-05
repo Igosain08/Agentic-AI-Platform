@@ -60,7 +60,6 @@ EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
     CMD curl -f http://localhost:8000/api/v1/health || exit 1
 
-# Run application using start script
-# Use shell form to ensure environment variables are available
+# Run application using start script (with debug output)
 CMD ["/bin/bash", "./start.sh"]
 
