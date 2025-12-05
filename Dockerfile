@@ -26,9 +26,10 @@ RUN uv pip install --system -e ".[dev]" || pip install -e ".[dev]"
 # Production stage
 FROM python:3.11-slim
 
-# Install runtime dependencies
+# Install runtime dependencies (including bash for start script)
 RUN apt-get update && apt-get install -y \
     curl \
+    bash \
     && rm -rf /var/lib/apt/lists/*
 
 # Create non-root user
