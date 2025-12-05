@@ -77,12 +77,17 @@ class Settings(BaseSettings):
     @property
     def couchbase_env(self) -> dict[str, str]:
         """Get Couchbase environment variables for MCP server."""
-        return {
-            "CB_CONNECTION_STRING": self.cb_connection_string,
-            "CB_USERNAME": self.cb_username,
-            "CB_PASSWORD": self.cb_password,
+        env = {
+            "CB_CONNECTION_STRING": self.cb_connection_string or "",
+            "CB_USERNAME": self.cb_username or "",
+            "CB_PASSWORD": self.cb_password or "",
             "CB_BUCKET_NAME": self.cb_bucket_name,
         }
+        # Add connection timeout settings for Couchbase
+        env["CB_CONNECTION_TIMEOUT"] = "30"  # 30 seconds connection timeout
+        env["CB_KV_TIMEOUT"] = "10"  # 10 seconds KV timeout
+        env["CB_QUERY_TIMEOUT"] = "75"  # 75 seconds query timeout
+        return env
 
     @property
     def is_production(self) -> bool:

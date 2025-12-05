@@ -94,13 +94,14 @@ class BaseAgent(ABC):
             from langchain_core.messages import HumanMessage
             messages = [HumanMessage(content=message)]
             
-            # Add timeout to prevent hanging
+            # Add timeout to prevent hanging - increased for database queries
             import asyncio
             try:
                 logger.debug(f"Invoking agent with message: {message[:100]}...")
+                # Increased timeout to 120 seconds for database operations
                 result = await asyncio.wait_for(
                     agent.ainvoke({"messages": messages}, config),
-                    timeout=60.0  # 60 second timeout
+                    timeout=120.0  # 120 second timeout for database queries
                 )
                 logger.debug(f"Agent execution completed. Messages: {len(result.get('messages', []))}")
                 
@@ -112,15 +113,15 @@ class BaseAgent(ABC):
                         logger.warning(f"Tool execution error in message: {msg.content[:200]}")
                         
             except asyncio.TimeoutError:
-                logger.error("Agent execution timed out after 60 seconds")
-                raise Exception("Agent execution timed out. The query may be too complex or MCP server is not responding.")
+                logger.error("Agent execution timed out after 120 seconds")
+                raise Exception("Query timed out. This may be due to: 1) Couchbase connection issues (check IP whitelist), 2) Network latency, or 3) Complex query. Try a simpler query or check Couchbase credentials.")
             except Exception as e:
                 logger.error(f"Agent execution failed: {e}", exc_info=True)
                 # Extract more detailed error message
                 error_msg = str(e)
-                if "TaskGroup" in error_msg:
-                    error_msg = "MCP tool execution failed. Check Couchbase credentials and MCP server configuration."
-                raise Exception(f"Agent execution failed: {error_msg}")
+                if "TaskGroup" in error_msg or "Connection" in error_msg or "timeout" in error_msg.lower():
+                    error_msg = "Database connection failed. Possible causes: 1) Railway IP not whitelisted in Couchbase Capella, 2) Incorrect credentials, 3) Network connectivity issues. Check Couchbase Capella → Network → Allowed IPs and add Railway's IP addresses."
+                raise Exception(f"Query failed: {error_msg}")
             
             response_content = result["messages"][-1].content
 
