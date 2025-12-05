@@ -18,8 +18,8 @@ st.set_page_config(
 st.title("🤖 Agentic AI Platform")
 st.markdown("**Production-ready multi-agent AI system with MCP integration**")
 
-# API URL - defaults to localhost, but can be set via environment variable
-API_URL = os.getenv("API_URL", "http://localhost:8005")
+# API URL - defaults to Railway backend, but can be set via environment variable
+API_URL = os.getenv("API_URL", "https://web-production-770e.up.railway.app")
 
 # Sidebar
 with st.sidebar:
