@@ -130,6 +130,13 @@ When answering questions:
 
     async def _ensure_mcp_session(self):
         """Ensure MCP session is open and tools are loaded."""
+        # Check if MCP is enabled and path exists
+        import os
+        if not self.settings.mcp_server_path or not os.path.exists(self.settings.mcp_server_path):
+            logger.warning(f"MCP server path not found: {self.settings.mcp_server_path}. Running without MCP tools.")
+            self._tools = []
+            return
+        
         if self._mcp_session is None:
             logger.info("Opening MCP session...")
             try:
@@ -138,7 +145,9 @@ When answering questions:
                 logger.info("MCP session opened")
             except Exception as e:
                 logger.error(f"Failed to open MCP session: {e}", exc_info=True)
-                raise Exception(f"MCP connection failed. Check Couchbase credentials and MCP_SERVER_PATH. Error: {str(e)}")
+                logger.warning("Continuing without MCP tools")
+                self._tools = []
+                return
             
             # Load tools once - tools are bound to this session
             if self._tools is None:
@@ -151,7 +160,8 @@ When answering questions:
                     logger.debug(f"MCP tool names: {tool_names[:5]}...")
                 except Exception as e:
                     logger.error(f"Failed to load MCP tools: {e}", exc_info=True)
-                    raise Exception(f"Failed to load MCP tools. Check MCP server configuration. Error: {str(e)}")
+                    logger.warning("Continuing without MCP tools")
+                    self._tools = []
     
     async def create_agent(self) -> Any:
         """Create a ReAct agent with MCP tools.
@@ -165,6 +175,10 @@ When answering questions:
             # Ensure MCP session is open (persistent connection)
             await self._ensure_mcp_session()
             
+            # If no tools available, use empty list
+            if self._tools is None:
+                self._tools = []
+            
             # Create agent with the tools
             agent = create_react_agent(
                 self.model,
@@ -173,7 +187,10 @@ When answering questions:
                 checkpointer=self._checkpoint,
             )
             
-            logger.info("Agent created successfully with MCP tools")
+            if len(self._tools) > 0:
+                logger.info(f"Agent created successfully with {len(self._tools)} MCP tools")
+            else:
+                logger.info("Agent created successfully without MCP tools (MCP not available)")
             return agent
                 
         except Exception as e:
