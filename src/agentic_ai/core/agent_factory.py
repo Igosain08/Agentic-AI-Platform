@@ -132,9 +132,13 @@ When answering questions:
         """Ensure MCP session is open and tools are loaded."""
         if self._mcp_session is None:
             logger.info("Opening MCP session...")
-            self._mcp_session_context = self.mcp_client.session()
-            self._mcp_session = await self._mcp_session_context.__aenter__()
-            logger.info("MCP session opened")
+            try:
+                self._mcp_session_context = self.mcp_client.session()
+                self._mcp_session = await self._mcp_session_context.__aenter__()
+                logger.info("MCP session opened")
+            except Exception as e:
+                logger.error(f"Failed to open MCP session: {e}", exc_info=True)
+                raise Exception(f"MCP connection failed. Check Couchbase credentials and MCP_SERVER_PATH. Error: {str(e)}")
             
             # Load tools once - tools are bound to this session
             if self._tools is None:
@@ -147,7 +151,7 @@ When answering questions:
                     logger.debug(f"MCP tool names: {tool_names[:5]}...")
                 except Exception as e:
                     logger.error(f"Failed to load MCP tools: {e}", exc_info=True)
-                    raise
+                    raise Exception(f"Failed to load MCP tools. Check MCP server configuration. Error: {str(e)}")
     
     async def create_agent(self) -> Any:
         """Create a ReAct agent with MCP tools.

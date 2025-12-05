@@ -116,7 +116,11 @@ class BaseAgent(ABC):
                 raise Exception("Agent execution timed out. The query may be too complex or MCP server is not responding.")
             except Exception as e:
                 logger.error(f"Agent execution failed: {e}", exc_info=True)
-                raise
+                # Extract more detailed error message
+                error_msg = str(e)
+                if "TaskGroup" in error_msg:
+                    error_msg = "MCP tool execution failed. Check Couchbase credentials and MCP server configuration."
+                raise Exception(f"Agent execution failed: {error_msg}")
             
             response_content = result["messages"][-1].content
 
