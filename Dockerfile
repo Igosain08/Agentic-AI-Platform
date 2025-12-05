@@ -61,7 +61,6 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
     CMD curl -f http://localhost:8000/api/v1/health || exit 1
 
 # Run application
-# Railway sets PORT automatically - use shell form to access it
-# ENV PORT=8000 is not needed - Railway sets it automatically
-CMD ["sh", "-c", "uvicorn agentic_ai.api.main:app --host 0.0.0.0 --port $PORT"]
+# Use default port 8000 if PORT not set (Railway should set it, but fallback to 8000)
+CMD ["sh", "-c", "uvicorn agentic_ai.api.main:app --host 0.0.0.0 --port ${PORT:-8000}"]
 
