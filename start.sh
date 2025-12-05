@@ -1,22 +1,21 @@
 #!/bin/bash
-# Start script for Railway/Render deployment
-# Handles PORT environment variable properly
+set -e
 
-# Get PORT from environment, default to 8000
-# Railway sets PORT automatically, but we need to ensure it's a number
-if [ -z "$PORT" ]; then
+# Debug: Show environment
+echo "Environment variables:"
+env | grep -E "PORT|RAILWAY" || echo "No PORT or RAILWAY vars found"
+
+# Get PORT - Railway sets this automatically, but default to 8000
+PORT="${PORT:-8000}"
+
+# Ensure PORT is numeric
+if ! [[ "$PORT" =~ ^[0-9]+$ ]]; then
+    echo "WARNING: PORT is not numeric, using 8000"
     PORT=8000
 fi
 
-# Ensure PORT is a valid number
-PORT=$(echo "$PORT" | grep -oE '[0-9]+' | head -1)
-if [ -z "$PORT" ]; then
-    PORT=8000
-fi
+echo "Starting uvicorn on port: $PORT"
 
-# Debug: Print the port we're using
-echo "Starting server on port: $PORT"
-
-# Start uvicorn with the port
+# Start uvicorn
 exec uvicorn agentic_ai.api.main:app --host 0.0.0.0 --port "$PORT"
 
