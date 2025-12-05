@@ -26,10 +26,11 @@ RUN uv pip install --system -e ".[dev]" || pip install -e ".[dev]"
 # Production stage
 FROM python:3.11-slim
 
-# Install runtime dependencies (including bash for start script)
+# Install runtime dependencies (including bash, git for MCP server clone)
 RUN apt-get update && apt-get install -y \
     curl \
     bash \
+    git \
     && rm -rf /var/lib/apt/lists/*
 
 # Create non-root user
@@ -48,9 +49,14 @@ COPY --from=builder /usr/local/bin /usr/local/bin
 COPY --chown=appuser:appuser src/ ./src/
 COPY --chown=appuser:appuser pyproject.toml README.md ./
 COPY --chown=appuser:appuser start.sh ./
-# Copy MCP server (required for database queries)
-COPY --chown=appuser:appuser mcp-server-couchbase/ ./mcp-server-couchbase/
 RUN chmod +x start.sh
+
+# Clone MCP server (required for database queries)
+# Using the official Couchbase MCP server repository
+USER root
+RUN git clone --depth 1 https://github.com/Couchbase-Ecosystem/mcp-server-couchbase.git /app/mcp-server-couchbase && \
+    chown -R appuser:appuser /app/mcp-server-couchbase
+USER appuser
 
 # Switch to non-root user
 USER appuser
