@@ -48,6 +48,8 @@ COPY --from=builder /usr/local/bin /usr/local/bin
 COPY --chown=appuser:appuser src/ ./src/
 COPY --chown=appuser:appuser pyproject.toml README.md ./
 COPY --chown=appuser:appuser start.sh ./
+# Copy MCP server (required for database queries)
+COPY --chown=appuser:appuser mcp-server-couchbase/ ./mcp-server-couchbase/
 RUN chmod +x start.sh
 
 # Switch to non-root user
