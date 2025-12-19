@@ -19,12 +19,6 @@ Real-time monitoring with custom metrics and latency heatmaps.
 
 ![Grafana Dashboard](docs/images/grafana-dashboard.png)
 
-## 📊 MLflow Experiment Tracking
-
-Track experiments, compare configurations, and monitor P99 latency.
-
-![MLflow UI](docs/images/mlflow-ui.png)
-
 **Features:**
 - Request Latency Heatmap visualization
 - Embedding vs LLM Generation Latency comparison
