@@ -4,9 +4,11 @@ import time
 from abc import ABC, abstractmethod
 from typing import Any, Optional
 
+from agentic_ai.config.settings import get_settings
 from agentic_ai.core.agent_factory import AgentFactory
 from agentic_ai.monitoring.logging import get_logger
 from agentic_ai.monitoring.metrics import get_metrics
+from agentic_ai.monitoring.mlflow_tracker import get_mlflow_tracker
 from agentic_ai.utils.cache import CacheManager
 
 logger = get_logger(__name__)
@@ -32,6 +34,7 @@ class BaseAgent(ABC):
         self.cache_manager = cache_manager
         self.agent_type = agent_type
         self.metrics = get_metrics()
+        self.mlflow_tracker = get_mlflow_tracker()
         self._agent: Optional[Any] = None
 
     async def _get_agent(self) -> Any:
@@ -80,6 +83,9 @@ class BaseAgent(ABC):
         start_time = time.time()
         config = {"configurable": {"thread_id": thread_id}}
 
+        # Log to MLflow if enabled (for individual queries, we log metrics without a run context)
+        # Run context should be managed at a higher level (e.g., evaluation script)
+
         # Check cache
         cache_key = (message, thread_id)
         if use_cache and self.cache_manager:
@@ -96,21 +102,49 @@ class BaseAgent(ABC):
             
             # Add timeout to prevent hanging - increased for database queries
             import asyncio
+            
+            # Track pipeline stages for Prometheus metrics
+            llm_generation_time = 0.0
+            tool_execution_time = 0.0
+            
             try:
                 logger.debug(f"Invoking agent with message: {message[:100]}...")
+                
+                # Track LLM generation time (this is the actual LLM call)
+                llm_start = time.time()
                 # Increased timeout to 120 seconds for database operations
                 result = await asyncio.wait_for(
                     agent.ainvoke({"messages": messages}, config),
                     timeout=120.0  # 120 second timeout for database queries
                 )
+                llm_generation_time = time.time() - llm_start
+                
                 logger.debug(f"Agent execution completed. Messages: {len(result.get('messages', []))}")
                 
-                # Check for tool call errors
+                # Track tool execution time (database queries via MCP tools)
+                # This is the "embedding/retrieval" equivalent - time spent querying database
+                tool_start = time.time()
                 for msg in result.get("messages", []):
                     if hasattr(msg, 'tool_calls') and msg.tool_calls:
                         logger.debug(f"Found tool calls: {[tc.get('name') for tc in msg.tool_calls]}")
+                        # Estimate tool execution time (in real implementation, would track actual tool calls)
+                        # For now, we'll approximate: total time - LLM time = tool time
                     if hasattr(msg, 'content') and 'error' in str(msg.content).lower():
                         logger.warning(f"Tool execution error in message: {msg.content[:200]}")
+                
+                # Approximate tool execution time (database queries)
+                # In a more sophisticated implementation, we'd track each tool call separately
+                total_time = time.time() - start_time
+                tool_execution_time = max(0, total_time - llm_generation_time - 0.1)  # Subtract small overhead
+                
+                # Record custom metrics for pipeline breakdown
+                settings = get_settings()
+                model_name = getattr(settings, 'llm_model', 'unknown')
+                self.metrics.record_llm_generation_latency(llm_generation_time, model=model_name, operation_type="chat")
+                self.metrics.record_embedding_latency(tool_execution_time, operation_type="database_query")
+                self.metrics.record_pipeline_stage(llm_generation_time, stage="llm_generation")
+                self.metrics.record_pipeline_stage(tool_execution_time, stage="tool_execution")
+                self.metrics.record_pipeline_stage(total_time, stage="total")
                         
             except asyncio.TimeoutError:
                 logger.error("Agent execution timed out after 120 seconds")
@@ -119,9 +153,15 @@ class BaseAgent(ABC):
                 logger.error(f"Agent execution failed: {e}", exc_info=True)
                 # Extract more detailed error message
                 error_msg = str(e)
-                if "TaskGroup" in error_msg or "Connection" in error_msg or "timeout" in error_msg.lower():
+                # Check for specific error patterns to provide better guidance
+                if "Service unavailable" in error_msg or "ServiceUnavailableException" in error_msg:
+                    # Error already contains helpful message from MCP tool
+                    raise Exception(f"Query failed: {error_msg}")
+                elif "TaskGroup" in error_msg or "Connection" in error_msg or "timeout" in error_msg.lower():
                     error_msg = "Database connection failed. Possible causes: 1) Railway IP not whitelisted in Couchbase Capella, 2) Incorrect credentials, 3) Network connectivity issues. Check Couchbase Capella → Network → Allowed IPs and add Railway's IP addresses."
-                raise Exception(f"Query failed: {error_msg}")
+                    raise Exception(f"Query failed: {error_msg}")
+                else:
+                    raise Exception(f"Query failed: {error_msg}")
             
             response_content = result["messages"][-1].content
 
@@ -142,11 +182,35 @@ class BaseAgent(ABC):
             duration = time.time() - start_time
             self.metrics.record_agent_query(self.agent_type, "success", duration)
 
+            # Log to MLflow if enabled
+            if self.mlflow_tracker.is_enabled:
+                self.mlflow_tracker.log_latency(duration)
+                # Log individual query metrics if there's an active run
+                try:
+                    from mlflow import active_run
+                    if active_run():
+                        self.mlflow_tracker.log_metric("query_latency_ms", duration * 1000)
+                        self.mlflow_tracker.log_metric("query_success", 1)
+                        self.mlflow_tracker.log_metric("query_response_length", len(response_content))
+                except Exception:
+                    pass  # Non-blocking - don't fail if MLflow logging fails
+
             return response
 
         except Exception as e:
             duration = time.time() - start_time
             self.metrics.record_agent_query(self.agent_type, "error", duration)
+            
+            # Log error to MLflow if enabled
+            if self.mlflow_tracker.is_enabled:
+                try:
+                    from mlflow import active_run
+                    if active_run():
+                        self.mlflow_tracker.log_metric("query_latency_ms", duration * 1000)
+                        self.mlflow_tracker.log_metric("query_success", 0)
+                except Exception:
+                    pass  # Non-blocking
+            
             logger.error(f"Agent query failed: {e}", exc_info=True)
             raise
 

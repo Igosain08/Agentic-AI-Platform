@@ -89,6 +89,30 @@ class MetricsCollector:
             "Number of active conversation threads",
         )
 
+        # Custom metrics: Embedding Latency vs LLM Generation Latency
+        # This is the "Senior Engineer" move - tracking which part of pipeline is slow
+        self.embedding_latency = Histogram(
+            "agentic_ai_embedding_latency_seconds",
+            "Time spent on embedding/vector operations (RAG retrieval)",
+            ["operation_type"],  # e.g., "query_embedding", "document_embedding"
+            buckets=(0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1.0, 5.0, 10.0),
+        )
+
+        self.llm_generation_latency = Histogram(
+            "agentic_ai_llm_generation_latency_seconds",
+            "Time spent on LLM generation (text generation)",
+            ["model", "operation_type"],  # e.g., "completion", "chat"
+            buckets=(0.1, 0.5, 1.0, 2.0, 5.0, 10.0, 30.0, 60.0, 120.0),
+        )
+
+        # Pipeline breakdown: Total query time breakdown
+        self.pipeline_stage_duration = Histogram(
+            "agentic_ai_pipeline_stage_duration_seconds",
+            "Duration of different pipeline stages",
+            ["stage"],  # e.g., "embedding", "llm_generation", "tool_execution", "total"
+            buckets=(0.01, 0.1, 0.5, 1.0, 2.0, 5.0, 10.0, 30.0, 60.0, 120.0),
+        )
+
         logger.info("Metrics collector initialized")
 
     def record_request(
@@ -185,6 +209,45 @@ class MetricsCollector:
             return
 
         self.active_threads.set(count)
+
+    def record_embedding_latency(self, duration: float, operation_type: str = "query_embedding") -> None:
+        """Record embedding/vector operation latency.
+
+        Args:
+            duration: Duration in seconds
+            operation_type: Type of embedding operation (e.g., "query_embedding", "document_embedding")
+        """
+        if not self._enabled:
+            return
+
+        self.embedding_latency.labels(operation_type=operation_type).observe(duration)
+
+    def record_llm_generation_latency(
+        self, duration: float, model: str = "unknown", operation_type: str = "completion"
+    ) -> None:
+        """Record LLM generation latency.
+
+        Args:
+            duration: Duration in seconds
+            model: Model name (e.g., "gpt-4o-mini", "claude-3")
+            operation_type: Type of operation (e.g., "completion", "chat")
+        """
+        if not self._enabled:
+            return
+
+        self.llm_generation_latency.labels(model=model, operation_type=operation_type).observe(duration)
+
+    def record_pipeline_stage(self, duration: float, stage: str) -> None:
+        """Record pipeline stage duration.
+
+        Args:
+            duration: Duration in seconds
+            stage: Pipeline stage name (e.g., "embedding", "llm_generation", "tool_execution", "total")
+        """
+        if not self._enabled:
+            return
+
+        self.pipeline_stage_duration.labels(stage=stage).observe(duration)
 
 
 # Global metrics collector instance

@@ -51,3 +51,29 @@ def mock_agent_factory(mock_mcp_client):
     factory.mcp_client = mock_mcp_client
     return factory
 
+
+@pytest.fixture
+def mock_openai_client():
+    """Mock OpenAI client for testing."""
+    client = MagicMock()
+    client.chat.completions.create = MagicMock()
+    return client
+
+
+@pytest.fixture
+def mock_couchbase_cluster():
+    """Mock Couchbase cluster for testing."""
+    cluster = MagicMock()
+    cluster.bucket = MagicMock()
+    return cluster
+
+
+@pytest.fixture
+def mock_redis_client():
+    """Mock Redis client for testing."""
+    client = MagicMock()
+    client.get = AsyncMock(return_value=None)
+    client.set = AsyncMock(return_value=True)
+    client.delete = AsyncMock(return_value=True)
+    return client
+

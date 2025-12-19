@@ -1,0 +1,14 @@
+# Sample queries for agent evaluation
+# One query per line
+
+What hotels are in Paris?
+Show me the top 10 hotels in France by rating
+Find routes from New York to London
+What airports are in Los Angeles?
+Show me airlines that fly from JFK
+What landmarks are in San Francisco?
+Find hotels in Tokyo with price less than 200
+What routes are available from LAX to airports in Europe?
+Show me the cheapest hotels in London
+What airlines operate routes to Paris?
+

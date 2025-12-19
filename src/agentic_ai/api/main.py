@@ -8,6 +8,7 @@ from fastapi import FastAPI, HTTPException, Request, Response, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
+from prometheus_fastapi_instrumentator import Instrumentator
 
 from agentic_ai.api.dependencies import set_dependencies
 from agentic_ai.api.routes import conversation, health, query
@@ -62,6 +63,18 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Prometheus instrumentation - automatically exposes /metrics endpoint
+# This provides standard HTTP metrics (request count, duration, etc.)
+instrumentator = Instrumentator(
+    should_group_status_codes=False,
+    should_ignore_untemplated=True,
+    should_instrument_requests_inprogress=True,
+    excluded_handlers=["/metrics", "/health", "/api/v1/health"],
+    inprogress_name="agentic_ai_requests_inprogress",
+    inprogress_labels=True,
+)
+instrumentator.instrument(app).expose(app)
 
 
 # Request timing middleware
