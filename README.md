@@ -75,7 +75,8 @@ pytest tests/ --cov=src/agentic_ai --cov-report=html
 
 Track agent performance, compare configurations, and monitor P99 latency with MLflow.
 
-![MLflow UI](docs/images/mlflow-ui.png)
+<!-- ![MLflow UI](docs/images/mlflow-ui.png) -->
+*Screenshot: Run `mlflow ui` to view your experiments*
 
 **Quick Start:**
 ```bash
