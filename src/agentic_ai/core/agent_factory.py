@@ -1,9 +1,9 @@
 """Factory for creating and managing AI agents."""
 
 from functools import wraps
-from typing import Any
+from typing import Any, Type
 
-from langchain_core.tools import BaseTool
+from langchain_core.tools import BaseTool, StructuredTool
 from langchain_mcp_adapters.tools import load_mcp_tools
 from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.prebuilt import create_react_agent
