@@ -124,13 +124,32 @@ class BaseAgent(ABC):
                 # Track tool execution time (database queries via MCP tools)
                 # This is the "embedding/retrieval" equivalent - time spent querying database
                 tool_start = time.time()
+                tool_calls_found = []
+                tool_errors_found = []
                 for msg in result.get("messages", []):
+                    # Log message type for debugging
+                    msg_type = type(msg).__name__
+                    logger.debug(f"Message type: {msg_type}, content preview: {str(msg.content)[:100] if hasattr(msg, 'content') else 'N/A'}")
+                    
                     if hasattr(msg, 'tool_calls') and msg.tool_calls:
-                        logger.debug(f"Found tool calls: {[tc.get('name') for tc in msg.tool_calls]}")
-                        # Estimate tool execution time (in real implementation, would track actual tool calls)
-                        # For now, we'll approximate: total time - LLM time = tool time
-                    if hasattr(msg, 'content') and 'error' in str(msg.content).lower():
-                        logger.warning(f"Tool execution error in message: {msg.content[:200]}")
+                        tool_calls_found.extend([tc.get('name', 'unknown') for tc in msg.tool_calls])
+                        logger.info(f"Found tool calls: {tool_calls_found}")
+                    
+                    # Check for ToolMessage (results from tool execution)
+                    if msg_type == 'ToolMessage' or (hasattr(msg, 'content') and msg.content):
+                        content_str = str(msg.content)
+                        if any(keyword in content_str.lower() for keyword in ['error', 'failed', 'exception', 'unable', 'cannot']):
+                            tool_errors_found.append(content_str)
+                            logger.warning(f"Tool error detected in {msg_type}: {content_str[:300]}")
+                    
+                    # Also check AIMessage for error mentions
+                    if msg_type == 'AIMessage' and hasattr(msg, 'content'):
+                        content_str = str(msg.content)
+                        if 'unable to fetch' in content_str.lower() or 'recurring issue' in content_str.lower():
+                            logger.warning(f"Agent gave generic error response. Checking for tool errors...")
+                
+                if tool_calls_found and not tool_errors_found:
+                    logger.warning(f"Tool calls were made ({tool_calls_found}) but no tool errors detected. This might indicate a silent failure.")
                 
                 # Approximate tool execution time (database queries)
                 # In a more sophisticated implementation, we'd track each tool call separately
@@ -184,21 +203,30 @@ class BaseAgent(ABC):
             # Check if there are any tool errors in the message history
             tool_errors = []
             for msg in result.get("messages", []):
+                msg_type = type(msg).__name__
                 # Check for ToolMessage with error content
-                if hasattr(msg, 'content') and msg.content:
+                if msg_type == 'ToolMessage' or (hasattr(msg, 'content') and msg.content):
                     content_str = str(msg.content)
-                    if "Error executing tool" in content_str or "error" in content_str.lower():
-                        tool_errors.append(content_str)
-                        logger.warning(f"Tool error detected: {content_str[:200]}")
+                    # Look for various error patterns
+                    if any(pattern in content_str for pattern in [
+                        "Error executing tool", "error", "Error", "failed", "Failed",
+                        "exception", "Exception", "unable", "Unable", "cannot", "Cannot"
+                    ]):
+                        tool_errors.append(f"[{msg_type}] {content_str}")
+                        logger.warning(f"Tool error detected in {msg_type}: {content_str[:300]}")
             
             # If we have tool errors and the response is generic, include the error
-            if tool_errors and ("unable to retrieve" in response_content.lower() or 
-                               "cannot provide" in response_content.lower() or
-                               "persistent issue" in response_content.lower()):
+            if tool_errors and any(phrase in response_content.lower() for phrase in [
+                "unable to retrieve", "cannot provide", "persistent issue", 
+                "recurring issue", "unable to fetch"
+            ]):
                 # Prepend the actual error to the response
-                error_details = "\n\n".join(tool_errors[:2])  # Show first 2 errors
-                response_content = f"❌ **Error Details:**\n{error_details}\n\n---\n\n{response_content}"
+                error_details = "\n\n".join(tool_errors[:3])  # Show first 3 errors
+                response_content = f"❌ **Tool Execution Error Details:**\n\n{error_details}\n\n---\n\n**Agent Response:**\n{response_content}"
                 logger.error(f"Tool errors found but agent gave generic response. Errors: {tool_errors}")
+            elif tool_errors:
+                # Even if response doesn't seem generic, log the errors
+                logger.warning(f"Tool errors found: {tool_errors}")
 
             response = {
                 "response": response_content,

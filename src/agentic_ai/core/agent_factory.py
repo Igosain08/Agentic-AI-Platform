@@ -221,10 +221,10 @@ When users ask about routes between cities:
             try:
                 self._mcp_session_context = self.mcp_client.session()
                 self._mcp_session = await self._mcp_session_context.__aenter__()
-                logger.info("MCP session opened")
+                logger.info("MCP session opened successfully")
             except Exception as e:
                 logger.error(f"Failed to open MCP session: {e}", exc_info=True)
-                logger.warning("Continuing without MCP tools")
+                logger.warning("Continuing without MCP tools - queries will fail")
                 self._tools = []
                 return
             
