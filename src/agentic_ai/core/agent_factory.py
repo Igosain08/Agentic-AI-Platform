@@ -231,16 +231,20 @@ When users ask about routes between cities:
                         error_msg += "\n\nThis may be a database connection issue. Check Couchbase credentials and network connectivity."
                     return error_msg
             
-            # Also wrap ainvoke if it exists (async version)
-            # StructuredTool.ainvoke() expects: ainvoke(input: Union[str, dict], config: Optional[RunnableConfig] = None, **kwargs)
-            async def safe_ainvoke(input: Any, config: Any = None, **kwargs: Any):
+            # Also wrap coroutine for async execution
+            # The 'coroutine' parameter for StructuredTool should be a simple function that takes input
+            # StructuredTool's ainvoke() will handle config and kwargs internally
+            async def safe_coroutine(input: Any):
+                """Coroutine wrapper that handles errors and always returns a result."""
                 try:
+                    # Get the original coroutine from the tool
+                    # If the tool has an original coroutine, use it; otherwise fallback to sync invoke
                     if original_ainvoke:
-                        # Pass input as first positional argument or as keyword if it's a dict
-                        result = await original_ainvoke(input, config=config, **kwargs)
+                        # Call ainvoke with the input - StructuredTool will handle config internally
+                        result = await original_ainvoke(input)
                     else:
                         # Fallback to sync invoke
-                        result = original_invoke(input, **kwargs)
+                        result = original_invoke(input)
                     return result if result is not None else "Tool executed successfully (no result returned)"
                 except Exception as e:
                     logger.error(f"Tool {tool_name} execution failed: {e}", exc_info=True)
@@ -260,7 +264,7 @@ When users ask about routes between cities:
                     }
                     
                     if original_ainvoke:
-                        tool_kwargs['coroutine'] = safe_ainvoke
+                        tool_kwargs['coroutine'] = safe_coroutine
                     
                     if hasattr(tool, 'args_schema') and tool.args_schema:
                         tool_kwargs['args_schema'] = tool.args_schema
