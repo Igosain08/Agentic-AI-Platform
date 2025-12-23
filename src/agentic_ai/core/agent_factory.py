@@ -234,14 +234,15 @@ When users ask about routes between cities:
             # Also wrap coroutine for async execution
             # The 'coroutine' parameter for StructuredTool should be a simple function that takes input
             # StructuredTool's ainvoke() will handle config and kwargs internally
+            # The coroutine will be called as: coroutine(input) where input is a dict
             async def safe_coroutine(input: Any):
                 """Coroutine wrapper that handles errors and always returns a result."""
                 try:
-                    # Get the original coroutine from the tool
-                    # If the tool has an original coroutine, use it; otherwise fallback to sync invoke
+                    # If the tool has an original coroutine, use it
                     if original_ainvoke:
-                        # Call ainvoke with the input - StructuredTool will handle config internally
-                        result = await original_ainvoke(input)
+                        # Call ainvoke with the input (config=None is default, kwargs are empty)
+                        # ainvoke signature: ainvoke(input, config=None, **kwargs)
+                        result = await original_ainvoke(input, config=None)
                     else:
                         # Fallback to sync invoke
                         result = original_invoke(input)
