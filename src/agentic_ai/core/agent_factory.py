@@ -232,20 +232,28 @@ When users ask about routes between cities:
                     return error_msg
             
             # Also wrap coroutine for async execution
-            # The 'coroutine' parameter for StructuredTool should be a simple function that takes input
-            # StructuredTool's ainvoke() will handle config and kwargs internally
-            # The coroutine will be called as: coroutine(input) where input is a dict
-            async def safe_coroutine(input: Any):
+            # The 'coroutine' parameter for StructuredTool can be called with either:
+            # - coroutine(input) where input is a dict
+            # - coroutine(**kwargs) where kwargs are the tool parameters
+            # We need to handle both cases
+            async def safe_coroutine(input: Any = None, **kwargs: Any):
                 """Coroutine wrapper that handles errors and always returns a result."""
                 try:
+                    # Determine the actual input - could be positional or in kwargs
+                    tool_input = input if input is not None else kwargs
+                    
+                    # If tool_input is empty, use kwargs as input
+                    if not tool_input:
+                        tool_input = kwargs
+                    
                     # If the tool has an original coroutine, use it
                     if original_ainvoke:
-                        # Call ainvoke with the input (config=None is default, kwargs are empty)
+                        # Call ainvoke with the input (config=None is default)
                         # ainvoke signature: ainvoke(input, config=None, **kwargs)
-                        result = await original_ainvoke(input, config=None)
+                        result = await original_ainvoke(tool_input, config=None)
                     else:
                         # Fallback to sync invoke
-                        result = original_invoke(input)
+                        result = original_invoke(tool_input)
                     return result if result is not None else "Tool executed successfully (no result returned)"
                 except Exception as e:
                     logger.error(f"Tool {tool_name} execution failed: {e}", exc_info=True)
