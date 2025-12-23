@@ -1,7 +1,9 @@
 """Factory for creating and managing AI agents."""
 
+from functools import wraps
 from typing import Any
 
+from langchain_core.tools import BaseTool
 from langchain_mcp_adapters.tools import load_mcp_tools
 from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.prebuilt import create_react_agent
@@ -181,7 +183,10 @@ When users ask about routes between cities:
             if self._tools is None:
                 logger.info("Loading MCP tools...")
                 try:
-                    self._tools = await load_mcp_tools(self._mcp_session)
+                    raw_tools = await load_mcp_tools(self._mcp_session)
+                    # Wrap tools to ensure they always return results (even on errors)
+                    # This prevents "missing ToolMessage" errors in LangGraph
+                    self._tools = [self._wrap_tool(tool) for tool in raw_tools]
                     logger.info(f"Loaded {len(self._tools)} MCP tools")
                     # Log tool names for debugging
                     tool_names = [getattr(t, 'name', 'unknown') for t in self._tools]
@@ -190,6 +195,66 @@ When users ask about routes between cities:
                     logger.error(f"Failed to load MCP tools: {e}", exc_info=True)
                     logger.warning("Continuing without MCP tools")
                     self._tools = []
+    
+    def _wrap_tool(self, tool: Any) -> Any:
+        """Wrap a tool to ensure it always returns a result, even on errors.
+        
+        This prevents LangGraph errors about missing ToolMessages when tool execution fails.
+        LangGraph requires every tool call to have a corresponding ToolMessage.
+        
+        Args:
+            tool: The tool to wrap
+            
+        Returns:
+            Wrapped tool that always returns a result (never raises)
+        """
+        # If it's already a BaseTool, wrap its invoke/ainvoke methods
+        if isinstance(tool, BaseTool):
+            original_invoke = tool.invoke
+            original_ainvoke = getattr(tool, 'ainvoke', None)
+            
+            tool_name = getattr(tool, 'name', 'unknown')
+            
+            @wraps(original_invoke)
+            def safe_invoke(*args, **kwargs):
+                try:
+                    result = original_invoke(*args, **kwargs)
+                    return result if result is not None else "Tool executed successfully (no result returned)"
+                except Exception as e:
+                    logger.error(f"Tool {tool_name} execution failed: {e}", exc_info=True)
+                    # Return error as string - LangChain will convert to ToolMessage
+                    # This ensures LangGraph always gets a ToolMessage, even on errors
+                    error_msg = f"Error executing tool {tool_name}: {str(e)}"
+                    if "connection" in str(e).lower() or "timeout" in str(e).lower():
+                        error_msg += "\n\nThis may be a database connection issue. Check Couchbase credentials and network connectivity."
+                    return error_msg
+            
+            # Replace invoke method
+            tool.invoke = safe_invoke
+            
+            # Also wrap ainvoke if it exists (async version)
+            if original_ainvoke:
+                @wraps(original_ainvoke)
+                async def safe_ainvoke(*args, **kwargs):
+                    try:
+                        result = await original_ainvoke(*args, **kwargs)
+                        return result if result is not None else "Tool executed successfully (no result returned)"
+                    except Exception as e:
+                        logger.error(f"Tool {tool_name} execution failed: {e}", exc_info=True)
+                        # Return error as string - LangChain will convert to ToolMessage
+                        error_msg = f"Error executing tool {tool_name}: {str(e)}"
+                        if "connection" in str(e).lower() or "timeout" in str(e).lower():
+                            error_msg += "\n\nThis may be a database connection issue. Check Couchbase credentials and network connectivity."
+                        return error_msg
+                
+                tool.ainvoke = safe_ainvoke
+            
+            return tool
+        else:
+            # For non-BaseTool objects, return as-is
+            # Most tools from load_mcp_tools should be BaseTool instances
+            logger.warning(f"Tool {type(tool)} is not a BaseTool, cannot wrap it")
+            return tool
     
     async def create_agent(self) -> Any:
         """Create a ReAct agent with MCP tools.
