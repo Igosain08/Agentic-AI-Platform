@@ -153,8 +153,23 @@ class BaseAgent(ABC):
                 logger.error(f"Agent execution failed: {e}", exc_info=True)
                 # Extract more detailed error message
                 error_msg = str(e)
+                
+                # Handle LangGraph tool call errors specifically
+                if "INVALID_CHAT_HISTORY" in error_msg or "tool_calls" in error_msg or "ToolMessage" in error_msg:
+                    logger.error("LangGraph tool call error - tool execution may have failed")
+                    raise Exception(
+                        "Query failed: Tool execution error. This usually means:\n"
+                        "1. MCP server connection failed or timed out\n"
+                        "2. Couchbase query service is unavailable\n"
+                        "3. Database connection credentials are incorrect\n\n"
+                        "Please check:\n"
+                        "- Couchbase connection string and credentials\n"
+                        "- MCP server is running and accessible\n"
+                        "- Network connectivity to Couchbase\n"
+                        f"Original error: {error_msg[:200]}"
+                    )
                 # Check for specific error patterns to provide better guidance
-                if "Service unavailable" in error_msg or "ServiceUnavailableException" in error_msg:
+                elif "Service unavailable" in error_msg or "ServiceUnavailableException" in error_msg:
                     # Error already contains helpful message from MCP tool
                     raise Exception(f"Query failed: {error_msg}")
                 elif "TaskGroup" in error_msg or "Connection" in error_msg or "timeout" in error_msg.lower():
