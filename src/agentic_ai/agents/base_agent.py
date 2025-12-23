@@ -178,7 +178,27 @@ class BaseAgent(ABC):
                 else:
                     raise Exception(f"Query failed: {error_msg}")
             
+            # Extract response content and check for errors
             response_content = result["messages"][-1].content
+            
+            # Check if there are any tool errors in the message history
+            tool_errors = []
+            for msg in result.get("messages", []):
+                # Check for ToolMessage with error content
+                if hasattr(msg, 'content') and msg.content:
+                    content_str = str(msg.content)
+                    if "Error executing tool" in content_str or "error" in content_str.lower():
+                        tool_errors.append(content_str)
+                        logger.warning(f"Tool error detected: {content_str[:200]}")
+            
+            # If we have tool errors and the response is generic, include the error
+            if tool_errors and ("unable to retrieve" in response_content.lower() or 
+                               "cannot provide" in response_content.lower() or
+                               "persistent issue" in response_content.lower()):
+                # Prepend the actual error to the response
+                error_details = "\n\n".join(tool_errors[:2])  # Show first 2 errors
+                response_content = f"❌ **Error Details:**\n{error_details}\n\n---\n\n{response_content}"
+                logger.error(f"Tool errors found but agent gave generic response. Errors: {tool_errors}")
 
             response = {
                 "response": response_content,

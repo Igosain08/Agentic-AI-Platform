@@ -183,9 +183,13 @@ When users ask about routes between cities:
                     else:
                         return original_func(*args, **kwargs)
                 except Exception as e:
-                    logger.error(f"Tool {tool.name} execution failed: {e}", exc_info=True)
-                    # Return error message instead of raising - this ensures ToolMessage is created
-                    return f"Error executing tool {tool.name}: {str(e)}"
+                    error_msg = str(e)
+                    logger.error(f"Tool {tool.name} execution failed: {error_msg}", exc_info=True)
+                    # Return detailed error message instead of raising - this ensures ToolMessage is created
+                    # Include error type and message for better debugging
+                    error_type = type(e).__name__
+                    detailed_error = f"Error executing tool {tool.name} ({error_type}): {error_msg}"
+                    return detailed_error
             
             # Create new tool with wrapped function
             if isinstance(tool, StructuredTool):
