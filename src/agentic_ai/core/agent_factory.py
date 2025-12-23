@@ -1,6 +1,5 @@
 """Factory for creating and managing AI agents."""
 
-import asyncio
 from typing import Any
 
 from langchain_mcp_adapters.tools import load_mcp_tools
@@ -157,27 +156,6 @@ When users ask about routes between cities:
                 max_tokens=self.settings.llm_max_tokens,
             )
 
-    # NOTE:
-    # We previously experimented with wrapping MCP tools to always return
-    # a result (even on errors) in order to avoid LangGraph INVALID_CHAT_HISTORY
-    # errors when tools failed. However, LangChain / LangGraph internally
-    # manage async/sync tool execution and may not always call `func`
-    # directly. Our wrapper was interacting poorly with that lifecycle and
-    # produced errors like "'NoneType' object is not callable" and
-    # "coroutine was never awaited" in production.
-    #
-    # To keep the system stable and let LangGraph / langchain_mcp_adapters
-    # handle tool execution correctly, we currently do NOT apply any
-    # custom wrapping here. The method is kept as a no-op for future
-    # experimentation if needed, but is not used in tool loading.
-    def _wrap_tool_with_error_handling(self, tool: Any) -> Any:
-        """Return tool unchanged.
-
-        Tool execution and error reporting are delegated to the underlying
-        LangChain / LangGraph integrations.
-        """
-        return tool
-    
     async def _ensure_mcp_session(self):
         """Ensure MCP session is open and tools are loaded."""
         # Check if MCP is enabled and path exists
@@ -192,10 +170,10 @@ When users ask about routes between cities:
             try:
                 self._mcp_session_context = self.mcp_client.session()
                 self._mcp_session = await self._mcp_session_context.__aenter__()
-                logger.info("MCP session opened successfully")
+                logger.info("MCP session opened")
             except Exception as e:
                 logger.error(f"Failed to open MCP session: {e}", exc_info=True)
-                logger.warning("Continuing without MCP tools - queries will fail")
+                logger.warning("Continuing without MCP tools")
                 self._tools = []
                 return
             
@@ -203,9 +181,6 @@ When users ask about routes between cities:
             if self._tools is None:
                 logger.info("Loading MCP tools...")
                 try:
-                    # Let langchain_mcp_adapters manage tool implementations directly.
-                    # We intentionally do NOT wrap tools here to avoid interfering
-                    # with LangGraph's tool execution and error handling.
                     self._tools = await load_mcp_tools(self._mcp_session)
                     logger.info(f"Loaded {len(self._tools)} MCP tools")
                     # Log tool names for debugging

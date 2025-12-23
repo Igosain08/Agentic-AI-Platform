@@ -124,32 +124,13 @@ class BaseAgent(ABC):
                 # Track tool execution time (database queries via MCP tools)
                 # This is the "embedding/retrieval" equivalent - time spent querying database
                 tool_start = time.time()
-                tool_calls_found = []
-                tool_errors_found = []
                 for msg in result.get("messages", []):
-                    # Log message type for debugging
-                    msg_type = type(msg).__name__
-                    logger.debug(f"Message type: {msg_type}, content preview: {str(msg.content)[:100] if hasattr(msg, 'content') else 'N/A'}")
-                    
                     if hasattr(msg, 'tool_calls') and msg.tool_calls:
-                        tool_calls_found.extend([tc.get('name', 'unknown') for tc in msg.tool_calls])
-                        logger.info(f"Found tool calls: {tool_calls_found}")
-                    
-                    # Check for ToolMessage (results from tool execution)
-                    if msg_type == 'ToolMessage' or (hasattr(msg, 'content') and msg.content):
-                        content_str = str(msg.content)
-                        if any(keyword in content_str.lower() for keyword in ['error', 'failed', 'exception', 'unable', 'cannot']):
-                            tool_errors_found.append(content_str)
-                            logger.warning(f"Tool error detected in {msg_type}: {content_str[:300]}")
-                    
-                    # Also check AIMessage for error mentions
-                    if msg_type == 'AIMessage' and hasattr(msg, 'content'):
-                        content_str = str(msg.content)
-                        if 'unable to fetch' in content_str.lower() or 'recurring issue' in content_str.lower():
-                            logger.warning(f"Agent gave generic error response. Checking for tool errors...")
-                
-                if tool_calls_found and not tool_errors_found:
-                    logger.warning(f"Tool calls were made ({tool_calls_found}) but no tool errors detected. This might indicate a silent failure.")
+                        logger.debug(f"Found tool calls: {[tc.get('name') for tc in msg.tool_calls]}")
+                        # Estimate tool execution time (in real implementation, would track actual tool calls)
+                        # For now, we'll approximate: total time - LLM time = tool time
+                    if hasattr(msg, 'content') and 'error' in str(msg.content).lower():
+                        logger.warning(f"Tool execution error in message: {msg.content[:200]}")
                 
                 # Approximate tool execution time (database queries)
                 # In a more sophisticated implementation, we'd track each tool call separately
@@ -172,23 +153,8 @@ class BaseAgent(ABC):
                 logger.error(f"Agent execution failed: {e}", exc_info=True)
                 # Extract more detailed error message
                 error_msg = str(e)
-                
-                # Handle LangGraph tool call errors specifically
-                if "INVALID_CHAT_HISTORY" in error_msg or "tool_calls" in error_msg or "ToolMessage" in error_msg:
-                    logger.error("LangGraph tool call error - tool execution may have failed")
-                    raise Exception(
-                        "Query failed: Tool execution error. This usually means:\n"
-                        "1. MCP server connection failed or timed out\n"
-                        "2. Couchbase query service is unavailable\n"
-                        "3. Database connection credentials are incorrect\n\n"
-                        "Please check:\n"
-                        "- Couchbase connection string and credentials\n"
-                        "- MCP server is running and accessible\n"
-                        "- Network connectivity to Couchbase\n"
-                        f"Original error: {error_msg[:200]}"
-                    )
                 # Check for specific error patterns to provide better guidance
-                elif "Service unavailable" in error_msg or "ServiceUnavailableException" in error_msg:
+                if "Service unavailable" in error_msg or "ServiceUnavailableException" in error_msg:
                     # Error already contains helpful message from MCP tool
                     raise Exception(f"Query failed: {error_msg}")
                 elif "TaskGroup" in error_msg or "Connection" in error_msg or "timeout" in error_msg.lower():
@@ -197,36 +163,7 @@ class BaseAgent(ABC):
                 else:
                     raise Exception(f"Query failed: {error_msg}")
             
-            # Extract response content and check for errors
             response_content = result["messages"][-1].content
-            
-            # Check if there are any tool errors in the message history
-            tool_errors = []
-            for msg in result.get("messages", []):
-                msg_type = type(msg).__name__
-                # Check for ToolMessage with error content
-                if msg_type == 'ToolMessage' or (hasattr(msg, 'content') and msg.content):
-                    content_str = str(msg.content)
-                    # Look for various error patterns
-                    if any(pattern in content_str for pattern in [
-                        "Error executing tool", "error", "Error", "failed", "Failed",
-                        "exception", "Exception", "unable", "Unable", "cannot", "Cannot"
-                    ]):
-                        tool_errors.append(f"[{msg_type}] {content_str}")
-                        logger.warning(f"Tool error detected in {msg_type}: {content_str[:300]}")
-            
-            # If we have tool errors and the response is generic, include the error
-            if tool_errors and any(phrase in response_content.lower() for phrase in [
-                "unable to retrieve", "cannot provide", "persistent issue", 
-                "recurring issue", "unable to fetch"
-            ]):
-                # Prepend the actual error to the response
-                error_details = "\n\n".join(tool_errors[:3])  # Show first 3 errors
-                response_content = f"❌ **Tool Execution Error Details:**\n\n{error_details}\n\n---\n\n**Agent Response:**\n{response_content}"
-                logger.error(f"Tool errors found but agent gave generic response. Errors: {tool_errors}")
-            elif tool_errors:
-                # Even if response doesn't seem generic, log the errors
-                logger.warning(f"Tool errors found: {tool_errors}")
 
             response = {
                 "response": response_content,

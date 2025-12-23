@@ -70,14 +70,13 @@ if prompt := st.chat_input("Ask me anything about the database..."):
     with st.chat_message("assistant"):
         with st.spinner("Thinking..."):
             try:
-                # Increased timeout to 150 seconds to match API timeout (120s) + buffer
                 response = httpx.post(
                     f"{api_url}/api/v1/query",
                     json={
                         "message": prompt,
                         "thread_id": st.session_state.thread_id
                     },
-                    timeout=150.0  # Increased from 60s to 150s for database queries
+                    timeout=60.0
                 )
                 response.raise_for_status()
                 data = response.json()
@@ -95,33 +94,14 @@ if prompt := st.chat_input("Ask me anything about the database..."):
                     "content": data["response"]
                 })
                 
-            except httpx.TimeoutException as e:
-                st.error(f"⏱️ Request timed out: The query took longer than 150 seconds")
-                st.info("💡 This usually happens with complex database queries. Try:")
-                st.info("   - Simplifying your query")
-                st.info("   - Checking if the API backend is running")
-                st.info("   - Verifying Couchbase connection")
             except httpx.RequestError as e:
-                error_msg = str(e)
-                if "timeout" in error_msg.lower() or "timed out" in error_msg.lower():
-                    st.error(f"⏱️ Connection timeout: {error_msg}")
-                    st.info("💡 The API is taking too long to respond. This might be due to:")
-                    st.info("   - Database connection issues")
-                    st.info("   - Complex query processing")
-                    st.info("   - Network latency")
-                else:
-                    st.error(f"❌ Connection error: {error_msg}")
-                    st.info("💡 Make sure the API is running at the configured URL")
+                st.error(f"❌ Connection error: {str(e)}")
+                st.info("💡 Make sure the API is running at the configured URL")
             except httpx.HTTPStatusError as e:
                 st.error(f"❌ API error: {e.response.status_code}")
-                try:
-                    error_data = e.response.json()
-                    st.json(error_data)
-                except:
-                    st.text(e.response.text)
+                st.json(e.response.json())
             except Exception as e:
                 st.error(f"❌ Error: {str(e)}")
-                st.info("💡 Check the API logs for more details")
 
 # Example queries
 st.markdown("---")

@@ -33,8 +33,6 @@ async def lifespan(app: FastAPI):
 
     # Startup
     logger.info("Starting application")
-    logger.info(f"Couchbase bucket: {settings.cb_bucket_name}")
-    logger.info(f"MCP server path: {settings.mcp_server_path}")
     global cache_manager, rate_limiter
     cache_manager = CacheManager()
     rate_limiter = RateLimiter()

@@ -122,3 +122,6 @@ ENV/
 # OS
 .DS_Store
 Thumbs.db
+
+# Coverage
+coverage.xml
