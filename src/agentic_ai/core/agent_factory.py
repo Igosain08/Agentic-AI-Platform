@@ -1,5 +1,6 @@
 """Factory for creating and managing AI agents."""
 
+import asyncio
 from typing import Any
 
 from langchain_mcp_adapters.tools import load_mcp_tools
@@ -156,6 +157,52 @@ When users ask about routes between cities:
                 max_tokens=self.settings.llm_max_tokens,
             )
 
+    def _wrap_tool_with_error_handling(self, tool: Any) -> Any:
+        """Wrap a tool to ensure it always returns a result, even on errors.
+        
+        This prevents LangGraph INVALID_CHAT_HISTORY errors when tool execution fails.
+        
+        Args:
+            tool: The tool to wrap
+            
+        Returns:
+            Wrapped tool that always returns a result
+        """
+        from functools import wraps
+        from langchain_core.tools import StructuredTool
+        
+        # If tool is already a StructuredTool, wrap its func
+        if hasattr(tool, 'func'):
+            original_func = tool.func
+            
+            @wraps(original_func)
+            async def wrapped_func(*args, **kwargs):
+                try:
+                    if asyncio.iscoroutinefunction(original_func):
+                        return await original_func(*args, **kwargs)
+                    else:
+                        return original_func(*args, **kwargs)
+                except Exception as e:
+                    logger.error(f"Tool {tool.name} execution failed: {e}", exc_info=True)
+                    # Return error message instead of raising - this ensures ToolMessage is created
+                    return f"Error executing tool {tool.name}: {str(e)}"
+            
+            # Create new tool with wrapped function
+            if isinstance(tool, StructuredTool):
+                return StructuredTool.from_function(
+                    func=wrapped_func,
+                    name=tool.name,
+                    description=tool.description,
+                    args_schema=tool.args_schema,
+                )
+            else:
+                # For other tool types, try to preserve structure
+                tool.func = wrapped_func
+                return tool
+        else:
+            # Tool doesn't have a func attribute, return as-is
+            return tool
+    
     async def _ensure_mcp_session(self):
         """Ensure MCP session is open and tools are loaded."""
         # Check if MCP is enabled and path exists
@@ -181,7 +228,9 @@ When users ask about routes between cities:
             if self._tools is None:
                 logger.info("Loading MCP tools...")
                 try:
-                    self._tools = await load_mcp_tools(self._mcp_session)
+                    raw_tools = await load_mcp_tools(self._mcp_session)
+                    # Wrap tools to ensure they always return ToolMessages even on errors
+                    self._tools = [self._wrap_tool_with_error_handling(tool) for tool in raw_tools]
                     logger.info(f"Loaded {len(self._tools)} MCP tools")
                     # Log tool names for debugging
                     tool_names = [getattr(t, 'name', 'unknown') for t in self._tools]
