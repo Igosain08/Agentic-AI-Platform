@@ -174,22 +174,38 @@ When users ask about routes between cities:
         # If tool is already a StructuredTool, wrap its func
         if hasattr(tool, 'func'):
             original_func = tool.func
+            is_async = asyncio.iscoroutinefunction(original_func)
             
-            @wraps(original_func)
-            async def wrapped_func(*args, **kwargs):
-                try:
-                    if asyncio.iscoroutinefunction(original_func):
+            if is_async:
+                # For async functions, wrap as async
+                @wraps(original_func)
+                async def wrapped_func(*args, **kwargs):
+                    try:
                         return await original_func(*args, **kwargs)
-                    else:
-                        return original_func(*args, **kwargs)
-                except Exception as e:
-                    error_msg = str(e)
-                    logger.error(f"Tool {tool.name} execution failed: {error_msg}", exc_info=True)
-                    # Return detailed error message instead of raising - this ensures ToolMessage is created
-                    # Include error type and message for better debugging
-                    error_type = type(e).__name__
-                    detailed_error = f"Error executing tool {tool.name} ({error_type}): {error_msg}"
-                    return detailed_error
+                    except Exception as e:
+                        error_msg = str(e)
+                        logger.error(f"Tool {tool.name} execution failed: {error_msg}", exc_info=True)
+                        error_type = type(e).__name__
+                        detailed_error = f"Error executing tool {tool.name} ({error_type}): {error_msg}"
+                        return detailed_error
+            else:
+                # For sync functions, wrap as sync but handle async calls
+                @wraps(original_func)
+                def wrapped_func(*args, **kwargs):
+                    try:
+                        result = original_func(*args, **kwargs)
+                        # If result is a coroutine, we need to await it
+                        if asyncio.iscoroutine(result):
+                            # This shouldn't happen for sync functions, but handle it
+                            logger.warning(f"Tool {tool.name} returned coroutine but is not async")
+                            return asyncio.run(result)
+                        return result
+                    except Exception as e:
+                        error_msg = str(e)
+                        logger.error(f"Tool {tool.name} execution failed: {error_msg}", exc_info=True)
+                        error_type = type(e).__name__
+                        detailed_error = f"Error executing tool {tool.name} ({error_type}): {error_msg}"
+                        return detailed_error
             
             # Create new tool with wrapped function
             if isinstance(tool, StructuredTool):
