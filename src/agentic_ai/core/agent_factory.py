@@ -229,27 +229,55 @@ When users ask about routes between cities:
                         error_msg += "\n\nThis may be a database connection issue. Check Couchbase credentials and network connectivity."
                     return error_msg
             
-            # Replace invoke method
-            tool.invoke = safe_invoke
-            
             # Also wrap ainvoke if it exists (async version)
-            if original_ainvoke:
-                @wraps(original_ainvoke)
-                async def safe_ainvoke(*args, **kwargs):
-                    try:
+            async def safe_ainvoke(*args, **kwargs):
+                try:
+                    if original_ainvoke:
                         result = await original_ainvoke(*args, **kwargs)
-                        return result if result is not None else "Tool executed successfully (no result returned)"
-                    except Exception as e:
-                        logger.error(f"Tool {tool_name} execution failed: {e}", exc_info=True)
-                        # Return error as string - LangChain will convert to ToolMessage
-                        error_msg = f"Error executing tool {tool_name}: {str(e)}"
-                        if "connection" in str(e).lower() or "timeout" in str(e).lower():
-                            error_msg += "\n\nThis may be a database connection issue. Check Couchbase credentials and network connectivity."
-                        return error_msg
-                
-                tool.ainvoke = safe_ainvoke
+                    else:
+                        result = original_invoke(*args, **kwargs)
+                    return result if result is not None else "Tool executed successfully (no result returned)"
+                except Exception as e:
+                    logger.error(f"Tool {tool_name} execution failed: {e}", exc_info=True)
+                    error_msg = f"Error executing tool {tool_name}: {str(e)}"
+                    if "connection" in str(e).lower() or "timeout" in str(e).lower():
+                        error_msg += "\n\nThis may be a database connection issue. Check Couchbase credentials and network connectivity."
+                    return error_msg
             
-            return tool
+            # StructuredTool is a Pydantic model - can't modify directly, need to create new instance
+            if isinstance(tool, StructuredTool):
+                try:
+                    # Create a new StructuredTool with wrapped functions
+                    tool_kwargs = {
+                        'name': tool.name,
+                        'description': tool.description,
+                        'func': safe_invoke,
+                    }
+                    
+                    if original_ainvoke:
+                        tool_kwargs['coroutine'] = safe_ainvoke
+                    
+                    if hasattr(tool, 'args_schema') and tool.args_schema:
+                        tool_kwargs['args_schema'] = tool.args_schema
+                    
+                    if hasattr(tool, 'return_direct'):
+                        tool_kwargs['return_direct'] = tool.return_direct
+                    
+                    if hasattr(tool, 'verbose'):
+                        tool_kwargs['verbose'] = tool.verbose
+                    
+                    wrapped_tool = StructuredTool(**tool_kwargs)
+                    logger.debug(f"Successfully wrapped StructuredTool: {tool_name}")
+                    return wrapped_tool
+                except Exception as e:
+                    logger.error(f"Failed to create wrapped StructuredTool for {tool_name}: {e}", exc_info=True)
+                    # Return original tool as fallback
+                    return tool
+            else:
+                # For other BaseTool types, try to use handle_tool_error or return as-is
+                # Some tools support error handling natively
+                logger.debug(f"Tool {tool_name} is not a StructuredTool, returning as-is")
+                return tool
         else:
             # For non-BaseTool objects, return as-is
             # Most tools from load_mcp_tools should be BaseTool instances
