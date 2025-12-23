@@ -17,6 +17,7 @@ st.set_page_config(
 
 st.title("🤖 Agentic AI Platform")
 st.markdown("**Production-ready multi-agent AI system with MCP integration**")
+st.caption("⚡ Optimized configuration: Temperature 0.7 (P99 latency: 25.3s) | MLflow tracking enabled")
 
 # API URL - defaults to Railway backend, but can be set via environment variable
 API_URL = os.getenv("API_URL", "https://web-production-770e.up.railway.app")
@@ -69,13 +70,14 @@ if prompt := st.chat_input("Ask me anything about the database..."):
     with st.chat_message("assistant"):
         with st.spinner("Thinking..."):
             try:
+                # Increased timeout to 150 seconds to match API timeout (120s) + buffer
                 response = httpx.post(
                     f"{api_url}/api/v1/query",
                     json={
                         "message": prompt,
                         "thread_id": st.session_state.thread_id
                     },
-                    timeout=60.0
+                    timeout=150.0  # Increased from 60s to 150s for database queries
                 )
                 response.raise_for_status()
                 data = response.json()
@@ -93,14 +95,33 @@ if prompt := st.chat_input("Ask me anything about the database..."):
                     "content": data["response"]
                 })
                 
+            except httpx.TimeoutException as e:
+                st.error(f"⏱️ Request timed out: The query took longer than 150 seconds")
+                st.info("💡 This usually happens with complex database queries. Try:")
+                st.info("   - Simplifying your query")
+                st.info("   - Checking if the API backend is running")
+                st.info("   - Verifying Couchbase connection")
             except httpx.RequestError as e:
-                st.error(f"❌ Connection error: {str(e)}")
-                st.info("💡 Make sure the API is running at the configured URL")
+                error_msg = str(e)
+                if "timeout" in error_msg.lower() or "timed out" in error_msg.lower():
+                    st.error(f"⏱️ Connection timeout: {error_msg}")
+                    st.info("💡 The API is taking too long to respond. This might be due to:")
+                    st.info("   - Database connection issues")
+                    st.info("   - Complex query processing")
+                    st.info("   - Network latency")
+                else:
+                    st.error(f"❌ Connection error: {error_msg}")
+                    st.info("💡 Make sure the API is running at the configured URL")
             except httpx.HTTPStatusError as e:
                 st.error(f"❌ API error: {e.response.status_code}")
-                st.json(e.response.json())
+                try:
+                    error_data = e.response.json()
+                    st.json(error_data)
+                except:
+                    st.text(e.response.text)
             except Exception as e:
                 st.error(f"❌ Error: {str(e)}")
+                st.info("💡 Check the API logs for more details")
 
 # Example queries
 st.markdown("---")
