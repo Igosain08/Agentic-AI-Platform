@@ -153,14 +153,40 @@ class BaseAgent(ABC):
                 logger.error(f"Agent execution failed: {e}", exc_info=True)
                 # Extract more detailed error message
                 error_msg = str(e)
+                error_type = type(e).__name__
+                
                 # Check for specific error patterns to provide better guidance
                 if "Service unavailable" in error_msg or "ServiceUnavailableException" in error_msg:
                     # Error already contains helpful message from MCP tool
                     raise Exception(f"Query failed: {error_msg}")
                 elif "TaskGroup" in error_msg or "Connection" in error_msg or "timeout" in error_msg.lower():
-                    error_msg = "Database connection failed. Possible causes: 1) Railway IP not whitelisted in Couchbase Capella, 2) Incorrect credentials, 3) Network connectivity issues. Check Couchbase Capella → Network → Allowed IPs and add Railway's IP addresses."
+                    # More specific error message based on context
+                    if "timeout" in error_msg.lower():
+                        error_msg = (
+                            "Query timed out. This may be due to:\n"
+                            "1. Complex query taking too long (try a simpler query)\n"
+                            "2. Couchbase connection issues (check IP whitelist in Couchbase Capella)\n"
+                            "3. Network latency issues\n"
+                            f"Original error: {error_msg}"
+                        )
+                    else:
+                        error_msg = (
+                            "Database connection failed. Possible causes:\n"
+                            "1. Railway IP not whitelisted in Couchbase Capella\n"
+                            "2. Incorrect credentials\n"
+                            "3. Network connectivity issues\n"
+                            "Check Couchbase Capella → Network → Allowed IPs and add Railway's IP addresses.\n"
+                            f"Original error: {error_msg}"
+                        )
+                    raise Exception(f"Query failed: {error_msg}")
+                elif "MCP" in error_msg or "mcp" in error_msg.lower():
+                    error_msg = (
+                        f"MCP tool error: {error_msg}\n"
+                        "This may indicate an issue with the MCP server or tool execution."
+                    )
                     raise Exception(f"Query failed: {error_msg}")
                 else:
+                    # Provide the original error but with context
                     raise Exception(f"Query failed: {error_msg}")
             
             response_content = result["messages"][-1].content
