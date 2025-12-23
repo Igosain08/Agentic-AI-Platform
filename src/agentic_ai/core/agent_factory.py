@@ -157,71 +157,26 @@ When users ask about routes between cities:
                 max_tokens=self.settings.llm_max_tokens,
             )
 
+    # NOTE:
+    # We previously experimented with wrapping MCP tools to always return
+    # a result (even on errors) in order to avoid LangGraph INVALID_CHAT_HISTORY
+    # errors when tools failed. However, LangChain / LangGraph internally
+    # manage async/sync tool execution and may not always call `func`
+    # directly. Our wrapper was interacting poorly with that lifecycle and
+    # produced errors like "'NoneType' object is not callable" and
+    # "coroutine was never awaited" in production.
+    #
+    # To keep the system stable and let LangGraph / langchain_mcp_adapters
+    # handle tool execution correctly, we currently do NOT apply any
+    # custom wrapping here. The method is kept as a no-op for future
+    # experimentation if needed, but is not used in tool loading.
     def _wrap_tool_with_error_handling(self, tool: Any) -> Any:
-        """Wrap a tool to ensure it always returns a result, even on errors.
-        
-        This prevents LangGraph INVALID_CHAT_HISTORY errors when tool execution fails.
-        
-        Args:
-            tool: The tool to wrap
-            
-        Returns:
-            Wrapped tool that always returns a result
+        """Return tool unchanged.
+
+        Tool execution and error reporting are delegated to the underlying
+        LangChain / LangGraph integrations.
         """
-        from functools import wraps
-        from langchain_core.tools import StructuredTool
-        
-        # If tool is already a StructuredTool, wrap its func
-        if hasattr(tool, 'func'):
-            original_func = tool.func
-            is_async = asyncio.iscoroutinefunction(original_func)
-            
-            if is_async:
-                # For async functions, wrap as async
-                @wraps(original_func)
-                async def wrapped_func(*args, **kwargs):
-                    try:
-                        return await original_func(*args, **kwargs)
-                    except Exception as e:
-                        error_msg = str(e)
-                        logger.error(f"Tool {tool.name} execution failed: {error_msg}", exc_info=True)
-                        error_type = type(e).__name__
-                        detailed_error = f"Error executing tool {tool.name} ({error_type}): {error_msg}"
-                        return detailed_error
-            else:
-                # For sync functions, wrap as sync but handle async calls
-                @wraps(original_func)
-                def wrapped_func(*args, **kwargs):
-                    try:
-                        result = original_func(*args, **kwargs)
-                        # If result is a coroutine, we need to await it
-                        if asyncio.iscoroutine(result):
-                            # This shouldn't happen for sync functions, but handle it
-                            logger.warning(f"Tool {tool.name} returned coroutine but is not async")
-                            return asyncio.run(result)
-                        return result
-                    except Exception as e:
-                        error_msg = str(e)
-                        logger.error(f"Tool {tool.name} execution failed: {error_msg}", exc_info=True)
-                        error_type = type(e).__name__
-                        detailed_error = f"Error executing tool {tool.name} ({error_type}): {error_msg}"
-                        return detailed_error
-            
-            # Create new tool with wrapped function
-            if isinstance(tool, StructuredTool):
-                return StructuredTool.from_function(
-                    func=wrapped_func,
-                    name=tool.name,
-                    description=tool.description,
-                    args_schema=tool.args_schema,
-                )
-            else:
-                # For other tool types, try to preserve structure
-                tool.func = wrapped_func
-                return tool
-        else:
-            # Tool doesn't have a func attribute, return as-is
-            return tool
+        return tool
     
     async def _ensure_mcp_session(self):
         """Ensure MCP session is open and tools are loaded."""
@@ -248,9 +203,10 @@ When users ask about routes between cities:
             if self._tools is None:
                 logger.info("Loading MCP tools...")
                 try:
-                    raw_tools = await load_mcp_tools(self._mcp_session)
-                    # Wrap tools to ensure they always return ToolMessages even on errors
-                    self._tools = [self._wrap_tool_with_error_handling(tool) for tool in raw_tools]
+                    # Let langchain_mcp_adapters manage tool implementations directly.
+                    # We intentionally do NOT wrap tools here to avoid interfering
+                    # with LangGraph's tool execution and error handling.
+                    self._tools = await load_mcp_tools(self._mcp_session)
                     logger.info(f"Loaded {len(self._tools)} MCP tools")
                     # Log tool names for debugging
                     tool_names = [getattr(t, 'name', 'unknown') for t in self._tools]
