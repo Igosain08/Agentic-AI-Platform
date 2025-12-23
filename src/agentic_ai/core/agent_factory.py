@@ -215,10 +215,12 @@ When users ask about routes between cities:
             
             tool_name = getattr(tool, 'name', 'unknown')
             
+            # StructuredTool.invoke() expects: invoke(input: Union[str, dict], config: Optional[RunnableConfig] = None, **kwargs)
             @wraps(original_invoke)
-            def safe_invoke(*args, **kwargs):
+            def safe_invoke(input: Any, config: Any = None, **kwargs: Any):
                 try:
-                    result = original_invoke(*args, **kwargs)
+                    # Pass input as first positional argument
+                    result = original_invoke(input, config=config, **kwargs)
                     return result if result is not None else "Tool executed successfully (no result returned)"
                 except Exception as e:
                     logger.error(f"Tool {tool_name} execution failed: {e}", exc_info=True)
@@ -230,12 +232,15 @@ When users ask about routes between cities:
                     return error_msg
             
             # Also wrap ainvoke if it exists (async version)
-            async def safe_ainvoke(*args, **kwargs):
+            # StructuredTool.ainvoke() expects: ainvoke(input: Union[str, dict], config: Optional[RunnableConfig] = None, **kwargs)
+            async def safe_ainvoke(input: Any, config: Any = None, **kwargs: Any):
                 try:
                     if original_ainvoke:
-                        result = await original_ainvoke(*args, **kwargs)
+                        # Pass input as first positional argument or as keyword if it's a dict
+                        result = await original_ainvoke(input, config=config, **kwargs)
                     else:
-                        result = original_invoke(*args, **kwargs)
+                        # Fallback to sync invoke
+                        result = original_invoke(input, **kwargs)
                     return result if result is not None else "Tool executed successfully (no result returned)"
                 except Exception as e:
                     logger.error(f"Tool {tool_name} execution failed: {e}", exc_info=True)
